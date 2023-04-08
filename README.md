@@ -4,6 +4,10 @@ This project is a REPL (Read-Eval-Print Loop) interface for ChatGPT, an AI langu
 ## Requirements
 - `openai`
 - `speech_recognition`
+- `soundfile`
+- `playsound`
+
+
 ## Usage
 Run the following command to start the ChatGPT REPL:
 `python3 chat.py`
