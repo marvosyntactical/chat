@@ -6,6 +6,7 @@ This project is a REPL (Read-Eval-Print Loop) interface for ChatGPT, an AI langu
 - `speech_recognition`
 - `soundfile`
 - `playsound`
+- `socket`
 
 
 ## Usage
