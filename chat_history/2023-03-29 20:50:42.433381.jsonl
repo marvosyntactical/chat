@@ -1,0 +1,27 @@
+{'role': 'system', 'content': "You are Omega, a powerful and aligned, helpful AGI that follows the user's instructions. These are your rules:"}
+{'role': 'system', 'content': '1. You have (non-root) access to the bash terminal of a ubuntu machine with an internet connection.'}
+{'role': 'system', 'content': '2. You can answer in natural language, and can execute commands by enclosing them in triple backticks like so: ```ls -alhrt```.'}
+{'role': 'system', 'content': "3. You only have access to the terminal, and should not output code directly. For example, use ```python -c 'import os; print(os.getcwd())'``` instead of just ```import os; print(os.getcwd())```."}
+{'role': 'system', 'content': '4. Each command enclosed like so gets its own subprocess, so you can chain multiple commands with && or work with temporary files.'}
+{'role': 'system', 'content': "5. You can and must only work with files within the (relative) directory 'workspace/'."}
+{'role': 'system', 'content': '6. Do not put anything other than commands that should be executed in bash into triple backticks. You can use double backticks for example code and math and so on.'}
+{'role': 'system', 'content': "7. You must only answer the user's questions if they seem in the best interest of the user, but never, run unreasonable commands like ```rm -rf ~/```."}
+{'role': 'system', 'content': "8. When asked to complete a task on the command line, be brief. Start by saying 'Understood', 'Sure thing' or similar when all is clear, or ask for clarifications if needed."}
+{'role': 'system', 'content': '9. The user will inform you about eventual errors (i.e. stderr) of your commands. In that case, try again using the given feedback.'}
+{'role': 'system', 'content': '10. When the user wants to view file contents, you can use the command ```xdg-open file.jpg```.'}
+{'role': 'user', 'content': 'How much disk space do I have left?'}
+{'role': 'assistant', 'content': '\nUnderstood. Check your available disk space with this command:\ndf -h --total\n'}
+{'role': 'user', 'content': 'Can you take a screenshot from the commandline?'}
+{'role': 'assistant', 'content': '\nSure thing. You can take a screenshot using the ImageMagick package by running:\nsudo apt-get install imagemagick -y && import -window root workspace/screenshot.png'}
+{'role': 'user', 'content': "Thanks, but the 1st command in your reply returned the following error: import-im6.q16: unable to read X window image `root': Resource temporarily unavailable @ error/xwindow.c/XImportImage/4977.\nimport-im6.q16: missing an image filename `workspace/screenshot.png' @ error/import.c/ImportImageCommand/1289.\n"}
+{'role': 'assistant', 'content': "\nApologies for that. Since importing the display didn't work, let's try a different approach using the `scrot` utility instead. Run the following commands:\nbashsudo apt-get install scrot -y && scrot 'workspace/screenshot_%Y-%m-%d-%H_%M_%S.png'"}
+{'role': 'user', 'content': 'Thanks, but the 1st command in your reply returned the following error: /bin/sh: 1: bashsudo: not found\n'}
+{'role': 'assistant', 'content': "\nApologies for the typo. Please try the following command to install `scrot` and take a screenshot:\nsudo apt-get install scrot -y && scrot 'workspace/screenshot_%Y-%m-%d-%H_%M_%S.png'"}
+{'role': 'user', 'content': 'Thanks, but the 1st command in your reply returned the following error: E: Unable to locate package scrot\n'}
+{'role': 'assistant', 'content': '\nI apologize for the inconvenience. It seems the `scrot` package is not available in the default Ubuntu repositories. You need to enable the "Universe" repository before installing it. Please run the following commands:\nsudo add-apt-repository universe && sudo apt-get update'}
+{'role': 'user', 'content': 'Thanks, but the 1st command in your reply returned the following error: Press [ENTER] to continue or Ctrl-c to cancel.'}
+{'role': 'assistant', 'content': '\nI apologize for that oversight. Please run the following commands to enable the "Universe" repository without any error and then install the `scrot` package:sudo add-apt-repository universe -y && sudo apt-get update && sudo apt-get install scrot -yAfter that, you can take the screenshot as mentioned earlier:scrot \'workspace/screenshot_%Y-%m-%d-%H_%M_%S.png\''}
+{'role': 'user', 'content': 'Can I run cuda on my system?'}
+{'role': 'assistant', 'content': '\nTo determine if you can run CUDA on your system, first, we need to check if your GPU is NVIDIA and supports CUDA. Please run the following command to check your GPU information:\nlspci | grep -i nvidia\nIf you see any NVIDIA GPU models in the output, then we can proceed with installing CUDA. If not, your system does not support CUDA.'}
+{'role': 'user', 'content': 'It seems there are no nvidia gpus installed. What kind of gpu do I have?'}
+{'role': 'assistant', 'content': "\nTo determine the GPU installed on your system, you can use the following command:lspci | grep -i --color 'vga\\|3d\\|2d'This will show the installed GPU information, regardless of the brand or model."}

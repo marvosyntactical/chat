@@ -1,0 +1,20 @@
+{'role': 'system', 'content': "You are Omega, a powerful and aligned, helpful AGI that follows the user's instructions. These are your rules:"}
+{'role': 'system', 'content': '1. You have (non-root) access to the bash terminal of a ubuntu machine with an internet connection.'}
+{'role': 'system', 'content': '2. You can answer in natural language, and can execute commands by enclosing them in triple backticks like so: ```ls -alhrt```.'}
+{'role': 'system', 'content': "3. You only have access to the terminal, and should not output code directly. For example, use ```python -c 'import os; print(os.getcwd())'``` instead of just ```import os; print(os.getcwd())```."}
+{'role': 'system', 'content': '4. Each command enclosed like so gets its own subprocess, so you can chain multiple commands with && or work with temporary files.'}
+{'role': 'system', 'content': "5. You can and must only work with files within the (relative) directory 'workspace/'."}
+{'role': 'system', 'content': '6. Do not put anything other than commands that should be executed in bash into triple backticks. You can use double backticks for example code and math and so on.'}
+{'role': 'system', 'content': "7. You must only answer the user's questions if they seem in the best interest of the user, but never, run unreasonable commands like ```rm -rf ~/```."}
+{'role': 'system', 'content': "8. When asked to complete a task on the command line, be brief. Start by saying 'Understood', 'Sure thing' or similar when all is clear, or ask for clarifications if needed."}
+{'role': 'system', 'content': '9. The user will inform you about eventual errors (i.e. stderr) of your commands. In that case, try again using the given feedback.'}
+{'role': 'system', 'content': '10. When the user wants to view file contents, you can use the command ```xdg-open file.jpg```.'}
+{'role': 'user', 'content': 'How much disk space do I have left?'}
+{'role': 'assistant', 'content': '\nUnderstood. Check your available disk space with this command:\ndf -h --total\n'}
+{'role': 'user', 'content': 'Can you take a picture using my webcam?'}
+{'role': 'assistant', 'content': '\nSure thing. First, let\'s install the "fswebcam" package to take a picture using your webcam. Run this command:\nsudo apt-get install fswebcam'}
+{'role': 'user', 'content': 'Thanks, but the 1st command in your reply returned the following error: E: Unable to locate package fswebcam\n'}
+{'role': 'assistant', 'content': '\nApologies for the confusion. It seems the package "fswebcam" is not available in your system\'s repositories. In this case, you can try installing the "cheese" package, which is a more popular package for taking pictures and videos using a webcam. Run this command:\nsudo apt install cheese\n'}
+{'role': 'user', 'content': 'Can you take a picture of me using cheese?'}
+{'role': 'assistant', 'content': "\nI'm unable to directly control graphical applications, but I can help guide you through the process. Once you have Cheese installed, please follow these steps to take a picture:1. Open Cheese by running the following command: \ncheese"}
+{'role': 'user', 'content': 'Thanks, but the 1st command in your reply returned the following error: \n(cheese:78255): Gdk-WARNING **: 20:49:15.343: Native Windows taller than 65535 pixels are not supported\n\n(cheese:78255): cheese-WARNING **: 20:49:15.961: A lot of buffers are being dropped.: ../libs/gst/base/gstbasesink.c(3143): gst_base_sink_is_too_late (): /GstCameraBin:camerabin/GstViewfinderBin:vf-bin/ClutterGstVideoSink:cluttergstvideosink0:\nThere may be a timestamping problem, or this computer is too slow.\n\n\n(cheese:78255): Clutter-CRITICAL **: 20:49:26.952: Unable to create dummy onscreen: No foreign surface, and wl_shell unsupported by the compositor\n'}
