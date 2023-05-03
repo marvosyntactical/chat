@@ -1,13 +1,46 @@
 # copy paste from SO: https://stackoverflow.com/questions/6796492/temporarily-redirect-stdout-stderr
 
 import os
+from playsound import playsound
+import requests
 import sys
 import time
+import threading
 
-def spinning_cursor():
-    while True:
-        for cursor in "|/-\\":
-            yield cursor
+class Spinner:
+    busy = False
+    delay = 0.2
+    cursors = "⣾⣽⣻⢿⡿⣟⣯⣷" # "|/-\\"
+
+    @staticmethod
+    def spinning_cursor():
+        while 1:
+            for cursor in Spinner.cursors: yield cursor
+
+    def __init__(self, description: str= "", delay: float = 0.1):
+        print(description, end=" ")
+        self.spinner_generator = self.spinning_cursor()
+        if delay and float(delay): self.delay = delay
+
+    def spinner_task(self):
+        while self.busy:
+            sys.stdout.write(next(self.spinner_generator))
+            sys.stdout.flush()
+            time.sleep(self.delay)
+            sys.stdout.write('\b')
+            sys.stdout.flush()
+
+    def __enter__(self):
+        self.busy = True
+        threading.Thread(target=self.spinner_task).start()
+
+    def __exit__(self, exception, value, tb):
+        self.busy = False
+        time.sleep(self.delay)
+        if exception is not None:
+            return False
+
+
 
 
 class Logger(object):
@@ -39,6 +72,41 @@ class RedirectStdStreams(object):
         self._stdout.flush(); self._stderr.flush()
         sys.stdout = self.old_stdout
         sys.stderr = self.old_stderr
+
+
+def eleven_labs_speech(text, voice_index=0, eleven_labs_api_key=""):
+    """Speak text using elevenlabs.io's API"""
+
+    tts_headers = {
+        "Content-Type": "application/json",
+        "xi-api-key": eleven_labs_api_key
+    }
+
+    voices = ["ErXwobaYiN019PkySvjV", "EXAVITQu4vr4xnSDxMaL"]
+    tts_url = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}".format(
+        voice_id=voices[voice_index]
+    )
+    formatted_message = {"text": text}
+    with Spinner(f"Generating Speech"):
+        response = requests.post(
+            tts_url, headers=tts_headers, json=formatted_message)
+
+    if response.status_code == 200:
+        speech_file = "speech.mpeg"
+        with open(speech_file, "wb") as f:
+            f.write(response.content)
+        # wait for playsound to finish
+        with Spinner(f"Speaking"):
+            playsound(speech_file, block=True)
+        print()
+        os.remove(speech_file)
+        return True
+    else:
+        print("Request failed with status code:", response.status_code)
+        print("Response content:", response.content)
+        return False
+
+
 
 if __name__ == '__main__':
 

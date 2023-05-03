@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "@emotion/react": "^11.10.6",
+    "@emotion/styled": "^11.10.6",
+    "bootstrap": "^5.2.3",
+    "react-bootstrap": "^2.7.3",
+    "react-router-dom": "^6.10.0"
+  }
+}

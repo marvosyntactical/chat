@@ -16,12 +16,10 @@ import speech_recognition as sr
 from custom_recognizer import CustomRecognizer
 import playsound
 
-import numpy as np
 import soundfile as sf
 import openai
-import tqdm
 
-from helpers import Logger, RedirectStdStreams
+from helpers import Logger, RedirectStdStreams, eleven_labs_speech, Spinner
 import socket
 
 import warnings
@@ -30,19 +28,31 @@ warnings.filterwarnings("ignore")
 
 from subprocess import Popen, PIPE
 
-cur_dir = f"{__file__[:len(__file__)-__file__[::-1].find('/')]}"
-CD = f"cd {cur_dir}"
+curr_dir = f"{__file__[:len(__file__)-__file__[::-1].find('/')]}"
+CD = f"cd {curr_dir}"
 
-api_key = os.getenv("OPENAI_API_KEY")
+openai_api_key = os.getenv("OPENAI_API_KEY")
 
-if api_key is None:
+if openai_api_key is None:
+    openai_filename = curr_dir+ ".openai_api_key"
     try:
-        with open(cur_dir+ ".api_key", "r") as api_file:
-            api_key = api_file.read()[:-1]
+        with open(openai_filename, "r") as api_file:
+            openai_api_key = api_file.read()[:-1]
+    except FileNotFoundError as FNFE:
+        print(f"OpenAI Key must be provided at ")
+        raise FNFE
+
+openai.api_key = openai_api_key
+
+eleven_labs_api_key = os.getenv("ELEVENLABS_API_KEY")
+if eleven_labs_api_key is None:
+    eleven_filename = curr_dir+ ".eleven_api_key"
+    try:
+        with open(eleven_filename, "r") as api_file:
+            eleven_labs_api_key = api_file.read()[:-1]
     except FileNotFoundError as FNFE:
         raise FNFE
 
-openai.api_key = api_key
 
 hostname = socket.gethostname()
 
@@ -56,7 +66,7 @@ EXIT = "/quit"
 ADD = "/add"
 HELP = "/help"
 
-WORKSPACE = cur_dir + "workspace/"
+WORKSPACE = curr_dir + "workspace/"
 if not os.path.isdir(WORKSPACE):
     os.mkdir(WORKSPACE)
 
@@ -102,13 +112,15 @@ class ChatBot:
             examples={},
             log: bool=False,
             name: str="Omega",
+            tts_server: str = "eleven",
             **kwargs
-            ):
+        ):
 
         self.lang = lang
         self.AUDIO_INPUT = AUDIO_INPUT
         self.AUDIO_OUTPUT = AUDIO_OUTPUT
         self.name = name
+        self.tts_server = tts_server
 
         self.R = CustomRecognizer()
         self.R.energy_threshold = energy_threshold
@@ -131,18 +143,19 @@ class ChatBot:
         os.mkdir(tmp_dir)
 
     def setup_system(self, system_messages: List[str] = ["You are a virtual assistant."]):
-        self.messages = [
-            eval(line) for line in system_messages
-        ]
+        self.messages = []
+        for line in system_messages:
+            evaln = eval(line)
+            self.messages += [evaln]
         if self.log_history:
             self.logfile.writelines([str(line)+"\n" for line in self.messages])
 
-    def post_process(self, response):
+    def post_process(self, r):
         """
         Splits response into text and command parts
         """
         parts = []
-        r = response.replace("\n", "")
+        # r = response.replace("\n", "")
         idx = 0
         is_command = False
         echo = False
@@ -177,27 +190,28 @@ class ChatBot:
         # devnull = open(os.devnull, 'w')
 
         # with RedirectStdStreams(stdout=devnull, stderr=devnull):
-        with sr.Microphone(device_index=mic_index) as source:
-            self.R.adjust_for_ambient_noise(source)
+        with Spinner(f"Listening "):
+            with sr.Microphone(device_index=mic_index) as source:
+                self.R.adjust_for_ambient_noise(source)
 
-            audio = self.R.listen_from_keyword_on(source, timeout=self.timeout)
+                audio = self.R.listen_from_keyword_on(source, timeout=self.timeout)
 
-            audio = audio.get_wav_data()
+                audio = audio.get_wav_data()
 
-            input_wav = self.tmp_dir + "input.wav"
+                input_wav = self.tmp_dir + "input.wav"
 
-            tmp = open(input_wav, "wb")
-            tmp.write(audio)
-            tmp.close()
+                tmp = open(input_wav, "wb")
+                tmp.write(audio)
+                tmp.close()
 
-            tmp = open(input_wav, "rb")
+                tmp = open(input_wav, "rb")
 
-            # wav_bytes = source.get_wav_data(convert_rate=16000)
+                # wav_bytes = source.get_wav_data(convert_rate=16000)
 
-            transcript = openai.Audio.transcribe("whisper-1", tmp)["text"]
-            # audio_array, sampling_rate = sf.read(wav_stream)
-            # audio_array = audio_array.astype(np.float32)
-            tmp.close()
+                transcript = openai.Audio.transcribe("whisper-1", tmp)["text"]
+                # audio_array, sampling_rate = sf.read(wav_stream)
+                # audio_array = audio_array.astype(np.float32)
+                tmp.close()
 
         # alternative
         # Popen(["arecord -q -d 5 -f S16_LE"], shell=True).wait()
@@ -210,7 +224,6 @@ class ChatBot:
         got_return = False
         while True:
             try:
-                print()
                 if not got_return:
                     if not self.AUDIO_INPUT:
                         user_input = input(">> "+colors.cyan("USER")+ "(✏️  ): ")
@@ -240,9 +253,11 @@ class ChatBot:
                         continue
                     elif command == AUDIO_INPUT:
                         self.AUDIO_INPUT = not self.AUDIO_INPUT
+                        print(f"Speech recognition on")
                         continue
                     elif command == AUDIO_OUTPUT:
                         self.AUDIO_OUTPUT = not self.AUDIO_OUTPUT
+                        print(f"TTS using {self.tts_server} on")
                         continue
                     elif command == EXIT:
                         print("Goodbye.")
@@ -261,35 +276,44 @@ class ChatBot:
 
                     # Make OPENAI API CALL
                     try:
-                        response = openai.ChatCompletion.create(
-                          # model="gpt-3.5-turbo",
-                          model="gpt-4",
-                          messages=self.messages,
-                        )
-                    except openai.error.RateLimitError:
-                        response = openai.ChatCompletion.create(
-                          model="gpt-3.5-turbo",
-                          # model="gpt-4",
-                          messages=self.messages,
-                        )
+                        with Spinner(f"Thinking "):
+                            try:
+                                response = openai.ChatCompletion.create(
+                                  # model="gpt-3.5-turbo",
+                                  model="gpt-4",
+                                  messages=self.messages,
+                                )
+                            except openai.error.RateLimitError:
+                                print("Falling back to gpt-3.5-turbo!")
+                                response = openai.ChatCompletion.create(
+                                  model="gpt-3.5-turbo",
+                                  # model="gpt-4",
+                                  messages=self.messages,
+                                )
 
-                    response = response["choices"][0]["message"]["content"]
+                        response = response["choices"][0]["message"]["content"]
 
 
-                    response_parts = self.post_process(response)
+                        response_parts = self.post_process(response)
 
-                    print()
-                    print(">> " + colors.red(self.name)+ ":"+"\n")
+                        print()
+                        print(">> " + colors.red(self.name)+ ":"+"\n")
 
-                    self.messages += [{"role": "assistant", "content": ""}]
+                        self.messages += [{"role": "assistant", "content": ""}]
+                    except KeyboardInterrupt:
+                        self.messages += [{"role": "assistant", "content": "<Interrupted by user.>"}]
+                        continue
 
                     got_return = False
+                    command_count = 0
                     for i, (part, is_command, echo) in enumerate(response_parts):
 
                         # iteratively add response to history
                         self.messages[-1]["content"] = self.messages[-1]["content"] + "\n" + part
 
                         if is_command:
+                            command_count += 1
+
                             if part.startswith("bash"):
                                 part = part[4:]
                             print(colors.red(f" {self.name}@ideas~$ {part}"))
@@ -312,7 +336,7 @@ class ChatBot:
 
                             if err:
                                 got_return = True
-                                user_input = f">> "+colors.blue("AUTO")+f": Thanks, but the {ordinal(i)} command in your reply returned the following error:\n{err}"
+                                user_input = f">> "+colors.blue("AUTO")+f": Thanks, but the {ordinal(command_count)} command in your reply returned the following error:\n{err}"
                             elif out:
                                 got_return = True
                                 user_input = f">> "+colors.blue("AUTO")+f": Your command returned: {out}."
@@ -341,20 +365,31 @@ class ChatBot:
 
 
     def speak(self, msg):
-        tmp_response = self.tmp_dir + "tmp_out.mp3"
-        msg = msg.replace('"', "'")
-        proc = Popen([f'gtts-cli "{msg}" -l {self.lang} --output {tmp_response}'], shell=True).wait()
-        reply = self.tmp_dir + "out.mp3"
-        Popen([f"ffmpeg -i {tmp_response} -loglevel quiet -filter:a 'atempo=1.25' -vn {reply}"], shell=True).wait()
-        playsound.playsound(reply)
-        os.remove(reply)
+        if self.tts_server == "google":
+            tmp_response = self.tmp_dir + "tmp_out.mp3"
+            msg = msg.replace('"', "'")
+            with Spinner(f"Generating Speech"):
+                proc = Popen([f'gtts-cli "{msg}" -l {self.lang} --output {tmp_response}'], shell=True).wait()
+            reply = self.tmp_dir + "out.mp3"
+            with Spinner(f"Speaking"):
+                Popen([f"ffmpeg -i {tmp_response} -loglevel quiet -filter:a 'atempo=1.25' -vn {reply}"], shell=True).wait()
+            playsound.playsound(reply)
+            os.remove(reply)
+        elif self.tts_server == "eleven":
+            eleven_labs_speech(
+                msg,
+                voice_index=1,
+                eleven_labs_api_key=eleven_labs_api_key
+            )
+        else:
+            raise NotImplementedError(self.tts_server)
 
 
 
 def main():
 
-    lang = "de"  # "en", "de"
-    name = "Omega"
+    lang = "en"  # "en", "de"
+    name = "Samantha"
 
     if not os.path.exists(f"examples/{name}_{lang}.jsonl"):
         p = "instructions"
@@ -365,12 +400,11 @@ def main():
         agi_system = instructions.readlines()
         agi_system = [l[:-1] for l in agi_system]
 
-    # print(agi_system)
-
     Bot = ChatBot(
         lang=lang,
         system_messages=agi_system,
         log=True,
+        name=name
     )
 
     # now = str(datetime.datetime.now())
