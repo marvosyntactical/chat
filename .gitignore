@@ -2,4 +2,6 @@ chat/*
 chat_history/*
 examples/*
 workspace/*
-.api_key
+.openai_api_key
+.eleven_api_key
+.x_rapidapi_key
