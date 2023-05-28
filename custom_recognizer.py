@@ -7,7 +7,6 @@ import time
 import soundfile as sf
 import io
 
-import torch
 import numpy as np
 
 from speech_recognition import *
@@ -100,6 +99,7 @@ class CustomRecognizer(Recognizer):
 
     def wait_for_keyword(self, source, keyword_model, timeout=None):
         # load keyword library (NOT THREAD SAFE)
+        import torch
 
         # keyword_model.SetAudioGain(1.0)
         # keyword_model.SetSensitivity(",".join(["0.4"] * len(keyword_key_word_files)).encode())

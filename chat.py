@@ -13,7 +13,8 @@ from typing import List
 from pprint import pprint
 
 import speech_recognition as sr
-# from custom_recognizer import CustomRecognizer
+from custom_recognizer import CustomRecognizer
+# from speech_recognition import Recognizer
 import playsound
 
 import soundfile as sf
@@ -103,19 +104,21 @@ class ChatBot:
 
     def __init__(
             self,
-            AUDIO_INPUT = False,
+            AUDIO_INPUT = True,
             AUDIO_OUTPUT = False,
             lang="de", # en; see gtts-cli --all
             timeout=None,
             tmp_dir=".tmp/",
-            energy_threshold=100, # min volume to consider for recording
+            energy_threshold=10, # min volume to consider for recording
             examples={},
             log: bool=False,
             name: str="Omega",
             tts_server: str = "eleven",
+            mic_index: int = 0,
             **kwargs
         ):
 
+        self.mic_index = mic_index
         self.lang = lang
         self.AUDIO_INPUT = AUDIO_INPUT
         self.AUDIO_OUTPUT = AUDIO_OUTPUT
@@ -126,6 +129,8 @@ class ChatBot:
         if self.AUDIO_INPUT:
             self.R = CustomRecognizer()
             self.R.energy_threshold = energy_threshold
+            # self.R = Recognizer()
+            # self.R.energy_threshold = energy_threshold
         self.timeout = timeout
         self.examples = examples
         self.log_history = log
@@ -187,16 +192,19 @@ class ChatBot:
         return parts
 
 
-    def listen_loop(self, activ: Trigger = Trigger.continuous, mic_index: int=1) -> str:
+    def listen_loop(self, activ: Trigger = Trigger.continuous) -> str:
 
         # devnull = open(os.devnull, 'w')
 
         # with RedirectStdStreams(stdout=devnull, stderr=devnull):
         with Spinner(f"Listening "):
-            with sr.Microphone(device_index=mic_index) as source:
+            # TODO pass device_index=self.mic_index to Microphone
+            with sr.Microphone() as source:
                 self.R.adjust_for_ambient_noise(source)
 
                 audio = self.R.listen_from_keyword_on(source, timeout=self.timeout)
+                # # audio = self.R.recognize_whisper(source, timeout=self.timeout)
+                # audio = self.R.listen(source, timeout=self.timeout)
 
                 audio = audio.get_wav_data()
 
@@ -389,6 +397,8 @@ class ChatBot:
 
 def main():
 
+    # TODO argparse
+
     lang = "en"  # "en", "de"
     name = "Samantha"
 
@@ -397,7 +407,9 @@ def main():
     else:
         p = "examples"
 
-    with open(f"{p}/{name}_{lang}.jsonl", "r") as instructions:
+    instruction_file = f"{p}/{name}_{lang}.jsonl"
+
+    with open(instruction_file, "r") as instructions:
         agi_system = instructions.readlines()
         agi_system = [l[:-1] for l in agi_system]
 
