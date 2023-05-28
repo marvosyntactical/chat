@@ -13,7 +13,7 @@ from typing import List
 from pprint import pprint
 
 import speech_recognition as sr
-# from custom_recognizer import CustomRecognizer
+from custom_recognizer import CustomRecognizer
 import playsound
 
 import soundfile as sf
@@ -122,10 +122,8 @@ class ChatBot:
         self.name = name
         self.tts_server = tts_server
 
-        # NOTE FIXME temporarily remove torch from virtualenv due to space issues
-        if self.AUDIO_INPUT:
-            self.R = CustomRecognizer()
-            self.R.energy_threshold = energy_threshold
+        self.R = CustomRecognizer()
+        self.R.energy_threshold = energy_threshold
         self.timeout = timeout
         self.examples = examples
         self.log_history = log
@@ -235,7 +233,8 @@ class ChatBot:
                             proc.wait()
                             continue
                     else:
-                        print(">> "+colors.cyan("USER")+"(🎤 ): ", end="")
+                        print(">> "+colors.cyan("USER")+"(🎤 ): ")
+
                         user_input = self.listen_loop()
                         print(user_input)
                 else:

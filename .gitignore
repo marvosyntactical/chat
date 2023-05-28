@@ -1,6 +1,7 @@
 chat/*
 chat_history/*
 examples/*
+samantha/*
 workspace/*
 .openai_api_key
 .eleven_api_key
