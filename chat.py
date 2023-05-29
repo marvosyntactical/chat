@@ -104,7 +104,7 @@ class ChatBot:
 
     def __init__(
             self,
-            AUDIO_INPUT = True,
+            AUDIO_INPUT = False,
             AUDIO_OUTPUT = False,
             lang="de", # en; see gtts-cli --all
             timeout=None,
@@ -114,7 +114,7 @@ class ChatBot:
             log: bool=False,
             name: str="Omega",
             tts_server: str = "eleven",
-            mic_index: int = 0,
+            mic_index: int = 1,
             **kwargs
         ):
 
