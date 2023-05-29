@@ -125,12 +125,9 @@ class ChatBot:
         self.name = name
         self.tts_server = tts_server
 
-        # NOTE FIXME temporarily remove torch from virtualenv due to space issues
-        if self.AUDIO_INPUT:
-            self.R = CustomRecognizer()
-            self.R.energy_threshold = energy_threshold
-            # self.R = Recognizer()
-            # self.R.energy_threshold = energy_threshold
+        self.R = CustomRecognizer()
+        self.R.energy_threshold = energy_threshold
+
         self.timeout = timeout
         self.examples = examples
         self.log_history = log
