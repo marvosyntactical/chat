@@ -20,7 +20,7 @@ import playsound
 import soundfile as sf
 import openai
 
-from helpers import Logger, RedirectStdStreams, eleven_labs_speech, Spinner
+from helpers import Logger, eleven_labs_speech, Spinner, suppress_stderr
 import socket
 
 import warnings
@@ -104,16 +104,16 @@ class ChatBot:
 
     def __init__(
             self,
-            AUDIO_INPUT = True,
+            AUDIO_INPUT = False,
             AUDIO_OUTPUT = False,
             lang="de", # en; see gtts-cli --all
             timeout=None,
             tmp_dir=".tmp/",
-            energy_threshold=10, # min volume to consider for recording
+            energy_threshold=400, # min volume to consider for recording
             examples={},
             log: bool=False,
             name: str="Omega",
-            tts_server: str = "eleven",
+            tts_server: str = "google",
             mic_index: int = 0,
             **kwargs
         ):
@@ -191,34 +191,33 @@ class ChatBot:
 
     def listen_loop(self, activ: Trigger = Trigger.continuous) -> str:
 
-        # devnull = open(os.devnull, 'w')
-
         # with RedirectStdStreams(stdout=devnull, stderr=devnull):
         with Spinner(f"Listening "):
-            # TODO pass device_index=self.mic_index to Microphone
-            with sr.Microphone() as source:
-                self.R.adjust_for_ambient_noise(source)
+            with suppress_stderr():
+                # TODO pass device_index=self.mic_index to Microphone
+                with sr.Microphone() as source:
+                    self.R.adjust_for_ambient_noise(source)
 
-                audio = self.R.listen_from_keyword_on(source, timeout=self.timeout)
-                # # audio = self.R.recognize_whisper(source, timeout=self.timeout)
-                # audio = self.R.listen(source, timeout=self.timeout)
+                    audio = self.R.listen_from_keyword_on(source, timeout=self.timeout)
+                    # # audio = self.R.recognize_whisper(source, timeout=self.timeout)
+                    # audio = self.R.listen(source, timeout=self.timeout)
 
-                audio = audio.get_wav_data()
+                    audio = audio.get_wav_data()
 
-                input_wav = self.tmp_dir + "input.wav"
+                    input_wav = self.tmp_dir + "input.wav"
 
-                tmp = open(input_wav, "wb")
-                tmp.write(audio)
-                tmp.close()
+                    tmp = open(input_wav, "wb")
+                    tmp.write(audio)
+                    tmp.close()
 
-                tmp = open(input_wav, "rb")
+                    tmp = open(input_wav, "rb")
 
-                # wav_bytes = source.get_wav_data(convert_rate=16000)
+                    # wav_bytes = source.get_wav_data(convert_rate=16000)
 
-                transcript = openai.Audio.transcribe("whisper-1", tmp)["text"]
-                # audio_array, sampling_rate = sf.read(wav_stream)
-                # audio_array = audio_array.astype(np.float32)
-                tmp.close()
+                    transcript = openai.Audio.transcribe("whisper-1", tmp)["text"]
+                    # audio_array, sampling_rate = sf.read(wav_stream)
+                    # audio_array = audio_array.astype(np.float32)
+                    tmp.close()
 
         # alternative
         # Popen(["arecord -q -d 5 -f S16_LE"], shell=True).wait()
@@ -397,7 +396,8 @@ def main():
     # TODO argparse
 
     lang = "en"  # "en", "de"
-    name = "Samantha"
+    # name = "Samantha"
+    name = "Omega"
 
     if not os.path.exists(f"examples/{name}_{lang}.jsonl"):
         p = "instructions"
@@ -407,12 +407,12 @@ def main():
     instruction_file = f"{p}/{name}_{lang}.jsonl"
 
     with open(instruction_file, "r") as instructions:
-        agi_system = instructions.readlines()
-        agi_system = [l[:-1] for l in agi_system]
+        system = instructions.readlines()
+        system = [l[:-1] for l in system]
 
     Bot = ChatBot(
         lang=lang,
-        system_messages=agi_system,
+        system_messages=system,
         log=True,
         name=name
     )
