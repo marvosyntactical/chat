@@ -12,3 +12,6 @@ This project is a REPL (Read-Evaluate-Print Loop) interface for ChatGPT, an AI l
 ## Usage
 Run the following command to start the ChatGPT REPL:
 `python3 chat.py`
+
+## Example
+![chatexample](chat_example.png)
