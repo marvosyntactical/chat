@@ -647,7 +647,7 @@ def main():
 
     Bot = ChatBot(
         lang=lang,
-        system_messages=agi_system,
+        system_messages=system,
         energy_threshold=thresh,
         log=True,
         name=name,
