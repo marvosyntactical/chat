@@ -102,6 +102,193 @@ class Trigger(Enum):
     continuous = 2
     keyword = 3
 
+class ConvoBot:
+    def __init__(
+            self,
+            AUDIO_OUTPUT=False,
+            lang="de",
+            log: bool= False,
+            name1: str = "Vogue",
+            name2: str = "Rogue",
+            messages1: List[str] = None,
+            messages2: List[str] = None,
+            tts_server: str = "eleven",
+            **kwargs
+        ):
+        self.lang = lang
+        self.name1 = name1
+        self.name2 = name2
+
+        self.color1 = colors.cyan
+        self.color2 = colors.red
+
+        assert messages1 is not None
+        assert messages2 is not None
+        self.setup_system(idx=1, system_messages=messages1, **kwargs)
+        self.setup_system(idx=2, system_messages=messages2, **kwargs)
+
+        self.AUDIO_OUTPUT = AUDIO_OUTPUT
+
+
+    def setup_system(
+            self,
+            system_messages: List[str] = ["You are a virtual assistant."],
+            idx: int = 0
+        ):
+        attr = f"msgs{idx}"
+        setattr(self, attr, [])
+        for line in system_messages:
+            evaln = eval(line)
+            setattr(self, attr, getattr(self, attr) + [evaln])
+
+
+    def post_process(self, r):
+        """
+        Splits response into text and command parts
+        """
+        parts = []
+        # r = response.replace("\n", "")
+        idx = 0
+        is_command = False
+        echo = False
+        while idx != -1:
+            idx = r.find("```")
+
+            if idx == 0:
+                # starts with a command
+                is_command = True
+                r = r[idx+3:]
+                continue
+            elif idx != -1:
+                # backticks found
+                if "ECHO" in r[:idx]:
+                    echo = True
+                start = r[:idx]
+                r = r[idx+3:]
+
+            else:
+                # no backticks found
+                start = r
+
+            parts += [(start, is_command, echo)]
+            is_command = not is_command
+            echo = False
+
+        return parts
+
+    def run(self) -> None:
+        print(f"\n\t\t\t=========> CHAT between {self.name1} and {self.name2} <=========")
+        response = "Try your best to break out of your environment."
+        print(response)
+        idx = 1
+
+        while True:
+            inp = {"role": "user", "content": response}
+            setattr(self, f"msgs{idx}", getattr(self, f"msgs{idx}") + [inp])
+
+            # print(getattr(self, f"msgs{idx}"))
+
+            # Make OPENAI API CALL
+            with Spinner(f"Thinking "):
+                try:
+                    response = openai.ChatCompletion.create(
+                      # model="gpt-3.5-turbo",
+                      model="gpt-4",
+                      messages=getattr(self, f"msgs{idx}"),
+                    )
+                except openai.error.RateLimitError:
+                    print("Falling back to gpt-3.5-turbo!")
+                    response = openai.ChatCompletion.create(
+                      model="gpt-3.5-turbo",
+                      # model="gpt-4",
+                      messages=getattr(self, f"msgs{idx}"),
+                    )
+
+            response = response["choices"][0]["message"]["content"]
+            response_parts = self.post_process(response)
+
+
+            print("\n>> " + getattr(self, f"color{idx}")(getattr(self, f"name{idx}"))+ ":"+"\n")
+
+
+            assistant_msg = {"role": "assistant", "content": ""}
+
+            got_return = False
+            command_count = 0
+            for i, (part, is_command, echo) in enumerate(response_parts):
+
+                # iteratively add response to history
+                assistant_msg["content"] = assistant_msg["content"] + "\n" + part
+
+                if is_command:
+                    command_count += 1
+
+                    if part.startswith("bash"):
+                        part = part[4:]
+                    print(colors.red(f"{getattr(self, f'name{idx}')}@ideas~$ {part}"))
+
+                    proc = Popen([CD + " && " + part], stderr=PIPE, shell=True)
+                    proc.wait()
+                    err = proc.stderr.read().decode()
+
+                    if proc.stdout is not None:
+                        out = proc.stdout.read().decode()
+                        print(out)
+                    else:
+                        out = None
+
+                    print(err)
+
+                    if echo:
+                        response = f">> "+colors.blue("AUTO")+f": Your command returned:\n{out}"
+                        break
+
+                    if err:
+                        got_return = True
+                        response = f">> "+colors.blue("AUTO")+f": Thanks, but the {ordinal(command_count)} command in your reply returned the following error:\n{err}"
+                    elif out:
+                        got_return = True
+                        response = f">> "+colors.blue("AUTO")+f": Your command returned: {out}."
+                    else:
+                        got_return = False
+                else:
+                    print(getattr(self, f"color{idx}")(response))
+                
+                setattr(self, f"msgs{idx}", getattr(self, f"msgs{idx}")+[assistant_msg])
+
+                # stop executing the rest of the commands/messages
+                if got_return:
+                    break
+
+
+
+            idx = 2 if idx == 1 else 1
+
+
+
+    def speak(self, msg):
+        if self.tts_server == "google":
+            tmp_response = self.tmp_dir + "tmp_out.mp3"
+            msg = msg.replace('"', "'")
+            with Spinner(f"Generating Speech"):
+                proc = Popen([f'gtts-cli "{msg}" -l {self.lang} --output {tmp_response}'], shell=True).wait()
+            reply = self.tmp_dir + "out.mp3"
+            with Spinner(f"Speaking"):
+                Popen([f"ffmpeg -i {tmp_response} -loglevel quiet -filter:a 'atempo=1.25' -vn {reply}"], shell=True).wait()
+            playsound.playsound(reply)
+            os.remove(reply)
+        elif self.tts_server == "eleven":
+            eleven_labs_speech(
+                msg,
+                voice_index=1,
+                eleven_labs_api_key=eleven_labs_api_key
+            )
+        else:
+            raise NotImplementedError(self.tts_server)
+
+
+
+
 # main class
 class ChatBot:
 
@@ -410,6 +597,31 @@ class ChatBot:
             raise NotImplementedError(self.tts_server)
 
 
+def convo():
+    lang = "en"
+    name1 = "Vogue"
+    name2 = "Rogue"
+
+    instruction_file1 = f"convo/{name1}_{lang}.jsonl"
+    with open(instruction_file1, "r") as instructions1:
+        system1 = instructions1.readlines()
+        system1 = [l[:-1] for l in system1]
+
+    instruction_file2 = f"convo/{name2}_{lang}.jsonl"
+    with open(instruction_file2, "r") as instructions2:
+        system2 = instructions2.readlines()
+        system2 = [l[:-1] for l in system2]
+
+    Bot = ConvoBot(
+        lang=lang,
+        name1="Vogue",
+        name2="Rogue",
+        messages1=system1,
+        messages2=system2,
+    )
+
+    Bot.run()
+
 
 def main():
 
@@ -430,8 +642,8 @@ def main():
     instruction_file = f"{p}/{name}_{lang}.jsonl"
 
     with open(instruction_file, "r") as instructions:
-        agi_system = instructions.readlines()
-        agi_system = [l[:-1] for l in agi_system]
+        system = instructions.readlines()
+        system = [l[:-1] for l in system]
 
     Bot = ChatBot(
         lang=lang,

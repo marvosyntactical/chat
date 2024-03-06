@@ -16,7 +16,6 @@ __all__ = ["CustomRecognizer"]
 class CustomRecognizer(Recognizer):
 
     def listen_from_keyword_on(self, source, timeout=None, phrase_time_limit=None, keyword_model= None):
-        # assert False, "got here"
         assert isinstance(source, AudioSource), "Source must be an audio source"
         assert source.stream is not None, "Audio source must be entered before listening, see documentation for ``AudioSource``; are you using ``source`` outside of a ``with`` statement?"
         assert self.pause_threshold >= self.non_speaking_duration >= 0

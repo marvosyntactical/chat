@@ -8,6 +8,19 @@ import time
 import threading
 import gi
 
+
+class suppress_stderr:
+    def __init__(self):
+        self._original_stderr = sys.stderr
+
+    def __enter__(self):
+        self._null_file = open(os.devnull, 'w')
+        sys.stderr = self._null_file
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._null_file.close()
+        sys.stderr = self._original_stderr
+
 class Spinner:
     busy = False
     delay = 0.2
