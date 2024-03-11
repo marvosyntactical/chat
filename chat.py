@@ -181,7 +181,9 @@ class ConvoBot:
 
         while True:
             inp = {"role": "user", "content": response}
+            inp_other = {"role": "assistant", "content": response}
             setattr(self, f"msgs{idx}", getattr(self, f"msgs{idx}") + [inp])
+            setattr(self, f"msgs{3-idx}", getattr(self, f"msgs{3-idx}") + [inp_other])
 
             # print(getattr(self, f"msgs{idx}"))
 
@@ -222,7 +224,7 @@ class ConvoBot:
 
                     if part.startswith("bash"):
                         part = part[4:]
-                    print(colors.red(f"{getattr(self, f'name{idx}')}@ideas~$ {part}"))
+                    print(colors.red(f"{getattr(self, f'name{idx}')}@ideas:~$ {part}"))
 
                     proc = Popen([CD + " && " + part], stderr=PIPE, shell=True)
                     proc.wait()
@@ -250,14 +252,11 @@ class ConvoBot:
                         got_return = False
                 else:
                     print(getattr(self, f"color{idx}")(response))
-                
-                setattr(self, f"msgs{idx}", getattr(self, f"msgs{idx}")+[assistant_msg])
+
 
                 # stop executing the rest of the commands/messages
                 if got_return:
                     break
-
-
 
             idx = 2 if idx == 1 else 1
 
@@ -606,8 +605,8 @@ def convo():
 def main():
 
     # NOTE FIXME
-    convo()
-    exit()
+    # convo()
+    # exit()
 
     # TODO argparse
 

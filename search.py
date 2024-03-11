@@ -52,7 +52,8 @@ def main(args: List[str]):
     response = requests.get(url, headers=headers, params=querystring)
 
     # print([k for k in response.json().keys()])
-    bodies = [v["body"] for v in response.json()["value"]]
+    V = response.json().get("value", {"body": ""})
+    bodies = [v["body"] for v in V]
 
     for i, b in enumerate(bodies):
         content = b.replace("\n\n", "\n").strip()
