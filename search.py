@@ -35,7 +35,7 @@ def main(args: List[str]):
     elif option == "NEWS":
         url = NEWS_URL
     else:
-        raise NotImplemented(f"{option}")
+        raise NotImplementedError(f"{option}")
 
     query = args[1]
 
@@ -50,6 +50,7 @@ def main(args: List[str]):
     }
 
     response = requests.get(url, headers=headers, params=querystring)
+    print(response)
 
     # print([k for k in response.json().keys()])
     V = response.json().get("value", {"body": ""})

@@ -6,6 +6,7 @@ import requests
 import sys
 import time
 import threading
+import gi
 
 
 class suppress_stderr:
@@ -118,6 +119,42 @@ def eleven_labs_speech(text, voice_index=0, eleven_labs_api_key=""):
         print("Request failed with status code:", response.status_code)
         print("Response content:", response.content)
         return False
+
+def init_alsa():
+    # DEPRECATED
+
+    gi.require_version('Gst', '1.0')
+    from gi.repository import Gst
+
+    # Initialize GStreamer
+    Gst.init(None)
+
+    # Configure the GStreamer pipeline
+    pipeline_str = 'alsasrc ! null'
+    pipeline = Gst.parse_launch(pipeline_str)
+
+    # Get the ALSA source element and set its properties
+    alsasrc = pipeline.get_by_name('alsasrc')
+    alsasrc.set_property('device', 'hw:0')  # Set the desired audio device if needed
+
+    # Create a bus to get error messages
+    bus = pipeline.get_bus()
+
+    # Disable error messages from ALSA
+    bus.set_flushing(True)
+    bus.set_flushing(False)
+    bus.add_signal_watch()
+    bus.enable_sync_message_emission()
+    bus.connect('message', lambda bus, message: None)
+
+    # Start the pipeline
+    pipeline.set_state(Gst.State.PLAYING)
+
+    # Your speech recognition code goes here...
+
+    # Clean up
+    pipeline.set_state(Gst.State.NULL)
+
 
 
 

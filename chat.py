@@ -2,6 +2,7 @@
 import os
 import shutil
 import sys
+import gi
 
 from enum import Enum
 import colors
@@ -18,9 +19,9 @@ from custom_recognizer import CustomRecognizer
 import playsound
 
 import soundfile as sf
-import openai
+from openai import OpenAI
 
-from helpers import Logger, eleven_labs_speech, Spinner, suppress_stderr
+from helpers import Logger, RedirectStdStreams, eleven_labs_speech, Spinner, init_alsa
 import socket
 
 import warnings
@@ -43,7 +44,7 @@ if openai_api_key is None:
         print(f"OpenAI Key must be provided at ")
         raise FNFE
 
-openai.api_key = openai_api_key
+openai_client = OpenAI(api_key=openai_api_key)
 
 eleven_labs_api_key = os.getenv("ELEVENLABS_API_KEY")
 if eleven_labs_api_key is None:
@@ -57,8 +58,10 @@ if eleven_labs_api_key is None:
 
 hostname = socket.gethostname()
 
-
 DEBUG = 1
+
+default_audio_in = True
+default_audio_out = True
 
 # commands
 AUDIO_INPUT = "/sr"
@@ -290,17 +293,17 @@ class ChatBot:
 
     def __init__(
             self,
-            AUDIO_INPUT = False,
-            AUDIO_OUTPUT = False,
+            AUDIO_INPUT = default_audio_in,
+            AUDIO_OUTPUT = default_audio_out,
             lang="de", # en; see gtts-cli --all
-            timeout=None,
+            timeout=5,
             tmp_dir=".tmp/",
-            energy_threshold=100, # min volume to consider for recording
+            energy_threshold=50, # min volume to consider for recording
             examples={},
             log: bool=False,
             name: str="Omega",
             tts_server: str = "eleven",
-            mic_index: int = 0,
+            mic_index: int = 2,
             **kwargs
         ):
 
@@ -312,6 +315,7 @@ class ChatBot:
         self.tts_server = tts_server
 
         self.R = CustomRecognizer()
+        # self.R = sr.Recognizer()
         self.R.energy_threshold = energy_threshold
 
         self.timeout = timeout
@@ -377,16 +381,17 @@ class ChatBot:
 
     def listen_loop(self, activ: Trigger = Trigger.continuous) -> str:
 
-        # with RedirectStdStreams(stdout=devnull, stderr=devnull):
-        with Spinner(f"Listening "):
-            with suppress_stderr():
+        with RedirectStdStreams():
+            with Spinner(f"Listening "):
                 # TODO pass device_index=self.mic_index to Microphone
-                with sr.Microphone() as source:
+                with sr.Microphone(device_index=4) as source:
                     self.R.adjust_for_ambient_noise(source)
 
                     audio = self.R.listen_from_keyword_on(source, timeout=self.timeout)
-                    # # audio = self.R.recognize_whisper(source, timeout=self.timeout)
+                    # audio = self.R.recognize_whisper(source, timeout=self.timeout)
                     # audio = self.R.listen(source, timeout=self.timeout)
+                    # audio = self.R.record(source, duration=5)
+                    # audio = self.R.listen(source, phrase_time_limit=self.timeout)
 
                     audio = audio.get_wav_data()
 
@@ -400,7 +405,7 @@ class ChatBot:
 
                     # wav_bytes = source.get_wav_data(convert_rate=16000)
 
-                    transcript = openai.Audio.transcribe("whisper-1", tmp)["text"]
+                    transcript = openai_client.audio.transcriptions.create(model="whisper-1", file=tmp).text
                     # audio_array, sampling_rate = sf.read(wav_stream)
                     # audio_array = audio_array.astype(np.float32)
                     tmp.close()
@@ -468,21 +473,24 @@ class ChatBot:
                     # Make OPENAI API CALL
                     try:
                         with Spinner(f"Thinking "):
-                            try:
-                                response = openai.ChatCompletion.create(
-                                  # model="gpt-3.5-turbo",
-                                  model="gpt-4",
-                                  messages=self.messages,
-                                )
-                            except openai.error.RateLimitError:
-                                print("Falling back to gpt-3.5-turbo!")
-                                response = openai.ChatCompletion.create(
-                                  model="gpt-3.5-turbo",
-                                  # model="gpt-4",
-                                  messages=self.messages,
-                                )
+                            # try:
+                            response = openai_client.chat.completions.create(
+                              # model="gpt-3.5-turbo",
+                              model="gpt-4",
+                              # model="gpt-3.5-turbo-0613",
+                              messages=self.messages,
+                            )
+                            # except openai.error.RateLimitError:
+                            #     print("\nFalling back to gpt-3.5-turbo!")
+                            #     if DEBUG: print(f"\nAttempting chat completion")
+                            #     response = openai.chat.completions.create(
+                            #       model="gpt-3.5-turbo",
+                            #       # model="gpt-4",
+                            #       messages=self.messages,
+                            #     )
 
-                        response = response["choices"][0]["message"]["content"]
+                        response = response.choices[0].message.content
+                        # response = response["choices"][0]["message"]["content"]
 
 
                         response_parts = self.post_process(response)
@@ -538,7 +546,7 @@ class ChatBot:
                             # message
                             print(colors.magenta(f"{part}"))
 
-                            if self.AUDIO_OUTPUT:
+                            if self.AUDIO_OUTPUT and part:
                                 self.speak(part)
 
                         # stop executing the rest of the commands/messages
@@ -556,6 +564,7 @@ class ChatBot:
 
 
     def speak(self, msg):
+        # if DEBUG: print(f"Attempting to speak msg '{msg}'")
         if self.tts_server == "google":
             tmp_response = self.tmp_dir + "tmp_out.mp3"
             msg = msg.replace('"', "'")
@@ -572,6 +581,17 @@ class ChatBot:
                 voice_index=1,
                 eleven_labs_api_key=eleven_labs_api_key
             )
+        elif self.tts_server == "openai":
+            # TODO
+            tmp_response = self.tmp_dir + "tmp_out.mp3"
+            response = openai_client.audio.speech.create(
+                model="tts-1",
+                voice="onyx",
+                input=msg
+            )
+            response.stream_to_file(tmp_response)
+            playsound.playsound(tmp_response)
+            os.remove(tmp_response)
         else:
             raise NotImplementedError(self.tts_server)
 
@@ -604,15 +624,13 @@ def convo():
 
 def main():
 
-    # NOTE FIXME
-    # convo()
-    # exit()
 
-    # TODO argparse
+    # TODO argparse/config
 
     lang = "en"  # "en", "de"
-    name = "Samantha"
-    # name = "Omega"
+    name = "AdamW"
+    thresh = 50
+    tts = "openai" # google, eleven, openai
 
     if not os.path.exists(f"examples/{name}_{lang}.jsonl"):
         p = "instructions"
@@ -628,8 +646,10 @@ def main():
     Bot = ChatBot(
         lang=lang,
         system_messages=system,
+        energy_threshold=thresh,
         log=True,
-        name=name
+        name=name,
+        tts_server=tts
     )
 
     # now = str(datetime.datetime.now())
