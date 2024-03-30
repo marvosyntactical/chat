@@ -6,4 +6,5 @@ workspace/*
 .openai_api_key
 .eleven_api_key
 .x_rapidapi_key
+.anthropic_api_key
 .google_calendar_credentials.json

@@ -21,18 +21,49 @@ import playsound
 
 import soundfile as sf
 from openai import OpenAI
+from anthropic import Anthropic
 
 from helpers import Logger, RedirectStdStreams, eleven_labs_speech, Spinner, init_alsa
 import socket
+import re
+import queue
+import threading
 
 import warnings
 warnings.filterwarnings("ignore")
-
 
 from subprocess import Popen, PIPE
 
 curr_dir = f"{__file__[:len(__file__)-__file__[::-1].find('/')]}"
 CD = f"cd {curr_dir}"
+
+anthropic_api_key = os.getenv("OPENAI_API_KEY")
+
+if anthropic_api_key is None:
+    anthropic_filename = curr_dir+ ".anthropic_api_key"
+    try:
+        with open(anthropic_filename, "r") as api_file:
+            anthropic_api_key = api_file.read()[:-1]
+    except FileNotFoundError as FNFE:
+        print(f"OpenAI Key must be provided at ")
+        raise FNFE
+
+anthropic_client = Anthropic(api_key=anthropic_api_key)
+
+openai_api_key = os.getenv("OPENAI_API_KEY")
+
+if openai_api_key is None:
+    openai_filename = curr_dir+ ".openai_api_key"
+    try:
+        with open(openai_filename, "r") as api_file:
+            openai_api_key = api_file.read()[:-1]
+    except FileNotFoundError as FNFE:
+        print(f"OpenAI Key must be provided at ")
+        raise FNFE
+
+openai_client = OpenAI(api_key=openai_api_key)
+
+
 
 openai_api_key = os.getenv("OPENAI_API_KEY")
 
@@ -61,7 +92,7 @@ hostname = socket.gethostname()
 
 DEBUG = 1
 
-default_audio_in = False
+default_audio_in = True
 default_audio_out = True
 
 # commands
@@ -120,8 +151,13 @@ class ChatBot:
             name: str="Omega",
             tts_server: str = "eleven",
             mic_index: int = 0, # 2==pi, 0==ubuntu
+            stream_msg: bool = True,
+            stream_audio: bool = True,
             **kwargs
         ):
+
+        self.stream_msg = stream_msg
+        self.stream_audio = stream_audio
 
         self.mic_index = mic_index
         self.lang = lang
@@ -152,11 +188,25 @@ class ChatBot:
         #     shutil.rmtree(self.tmp_dir)
         # os.mkdir(tmp_dir)
 
+        if self.stream_audio:
+            assert self.stream_msg, f"Can only stream audio if streaming text message also, currently."
+            self.speak_listen_queue = queue.Queue()
+            self.speak_thread = threading.Thread(target=self._speak_listen_worker)
+            self.speak_thread.daemon = True
+            self.speak_thread.start()
+
     def setup_system(self, system_messages: List[str] = ["You are a virtual assistant."]):
         self.messages = []
+        # Anthropic doesnt have system messages, only a global system parameter
+        # for line in system_messages:
+        #     evaln = eval(line)
+        #     self.messages += [evaln]
+        self.sys_msg = ""
         for line in system_messages:
             evaln = eval(line)
-            self.messages += [evaln]
+            self.sys_msg += evaln["content"] + "\n"
+        self.sys_msg = self.sys_msg[:-1]
+
         if self.log_history:
             self.logfile.writelines([str(line)+"\n" for line in self.messages])
 
@@ -200,7 +250,7 @@ class ChatBot:
         with RedirectStdStreams():
             with Spinner(f"Listening "):
                 # Wait for keypress
-                keyboard.wait('ctrl+q')
+                # keyboard.wait('ctrl+q')
                 with sr.Microphone(device_index=1) as source:
 
                     self.R.adjust_for_ambient_noise(source)
@@ -249,11 +299,23 @@ class ChatBot:
                             continue
                     else:
                         print(">> "+colors.cyan("USER")+"(🎤 ): ", end="")
-                        user_input = self.listen_loop()
-                        print(user_input)
+                        if self.stream_audio:
+                            self.speak_listen_queue.put(0)
+                        else:
+                            user_input = self.listen_loop()
+                            print(user_input)
                 else:
                     print(user_input)
 
+                if self.stream_audio:
+                    self.transcribed_msg = None
+                    while True:
+                        # wait for self.transcribed_msg to be set by _speak_listen_worker
+                        time.sleep(1)
+                        if self.transcribed_msg is not None:
+                            user_input = self.transcribed_msg
+                            print(user_input)
+                            break
 
                 # Popen(["ffmpeg", "-i", tmp_in, "-af", '"highpass=f=200, lowpass=f=3000"', tmp_out)
                 # look for special keywords
@@ -284,40 +346,59 @@ class ChatBot:
                         break
                 else:
                     inp = {"role": "user", "content": user_input}
+
                     self.messages += [inp]
+
                     if self.log_history:
                         self.logfile.write(str(inp)+"\n")
 
                     # Make OPENAI API CALL
                     try:
-                        with Spinner(f"Thinking "):
-                            # try:
-                            response = openai_client.chat.completions.create(
-                              # model="gpt-3.5-turbo",
-                              model="gpt-4",
-                              # model="gpt-3.5-turbo-0613",
-                              messages=self.messages,
-                            )
-                            # except openai.error.RateLimitError:
-                            #     print("\nFalling back to gpt-3.5-turbo!")
-                            #     if DEBUG: print(f"\nAttempting chat completion")
-                            #     response = openai.chat.completions.create(
-                            #       model="gpt-3.5-turbo",
-                            #       # model="gpt-4",
-                            #       messages=self.messages,
-                            #     )
+                        if not self.stream_msg:
+                            with Spinner(f"Thinking "):
+                                response = anthropic_client.messages.create(
+                                    model="claude-3-opus-20240229",
+                                    system=self.sys_msg,
+                                    max_tokens=1024,
+                                    messages=self.messages
+                                ).content[0].text
+                        else:
+                            # streaming message
+                            response = ""
+                            prev_delim = 0
+                            print()
+                            print(">> " + colors.red(self.name)+ ":"+"\n")
+                            with anthropic_client.messages.stream(
+                                    model="claude-3-opus-20240229",
+                                    system=self.sys_msg,
+                                    max_tokens=1024,
+                                    messages=self.messages
+                                ) as stream:
+                                for text in stream.text_stream:
+                                    if self.stream_audio:
+                                        # speak individual sentences
+                                        delims = re.compile(r"(!|\.|\?| \- |\: )")
+                                        if delims.search(text):
+                                            # delimiter found: speak in background
+                                            self.speak_listen_queue.put(response[prev_delim:])
+                                            prev_delim = len(response)
+                                    response += text
+                                    print(colors.magenta(text), end="", flush=True)
 
-                        response = response.choices[0].message.content
-                        # response = response["choices"][0]["message"]["content"]
-
+                                if self.stream_audio:
+                                    # speak last sentence
+                                    self.speak_listen_queue.put(response[prev_delim:])
+                            print()
 
                         response_parts = self.post_process(response)
 
-                        print()
-                        print(">> " + colors.red(self.name)+ ":"+"\n")
+                        if not self.stream_msg:
+                            print()
+                            print(">> " + colors.red(self.name)+ ":"+"\n")
 
-                        self.messages += [{"role": "assistant", "content": ""}]
+                        self.messages += [{"role": "assistant", "content": ""}] # initialize assistant response
                     except KeyboardInterrupt:
+                        print("\n<Thought interrupted by user>")
                         self.messages += [{"role": "assistant", "content": "<Interrupted by user.>"}]
                         continue
 
@@ -362,9 +443,10 @@ class ChatBot:
 
                         else:
                             # message
-                            print(colors.magenta(f"{part}"))
+                            if not self.stream_msg:
+                                print(colors.magenta(f"{part}"))
 
-                            if self.AUDIO_OUTPUT and part:
+                            if self.AUDIO_OUTPUT and part and not self.stream_audio:
                                 self.speak(part)
 
                         # stop executing the rest of the commands/messages
@@ -374,12 +456,25 @@ class ChatBot:
                     if self.log_history:
                         self.logfile.write(str(self.messages[-1])+"\n")
 
+                # if self.stream_audio: self.speak_listen_queue.join()
+
             except KeyboardInterrupt as KI:
                 print("Interrupting ...")
                 got_return = False
                 # continue
                 raise
 
+    def _speak_listen_worker(self):
+        # for audio streaming
+        while True:
+            sentence = self.speak_listen_queue.get()
+            if sentence != 0:
+                # speak
+                self.speak(sentence)
+            else:
+                # listen
+                self.transcribed_msg = self.listen_loop()
+            self.speak_listen_queue.task_done()
 
     def speak(self, msg):
         # if DEBUG: print(f"Attempting to speak msg '{msg}'")
@@ -404,12 +499,13 @@ class ChatBot:
             tmp_response = self.tmp_dir + "tmp_out.mp3"
             response = openai_client.audio.speech.create(
                 model="tts-1",
-                voice="onyx",
+                voice="nova",
                 input=msg
             )
             response.stream_to_file(tmp_response)
-            # playsound.playsound(tmp_response)
-            Popen(["mpg123", "-q", tmp_response])
+
+            playsound.playsound(tmp_response)
+            # Popen(["mpg123", "-q", tmp_response])
 
             os.remove(tmp_response)
         else:
@@ -423,7 +519,7 @@ def main():
     # TODO argparse/config
 
     lang = "en"  # "en", "de"
-    name = "Echo"
+    name = "Opus"
     thresh = 50
     tts = "openai" # google, eleven, openai
 
