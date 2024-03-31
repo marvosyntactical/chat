@@ -13,6 +13,7 @@ import json
 from typing import List
 from pprint import pprint
 import keyboard
+from pydub import AudioSegment
 
 import speech_recognition as sr
 from custom_recognizer import CustomRecognizer
@@ -26,6 +27,7 @@ from anthropic import Anthropic
 from helpers import Logger, RedirectStdStreams, eleven_labs_speech, Spinner, init_alsa
 import socket
 import re
+import base64
 import queue
 import threading
 
@@ -33,6 +35,8 @@ import warnings
 warnings.filterwarnings("ignore")
 
 from subprocess import Popen, PIPE
+
+HOSTNAME = "ideas"
 
 curr_dir = f"{__file__[:len(__file__)-__file__[::-1].find('/')]}"
 CD = f"cd {curr_dir}"
@@ -92,7 +96,7 @@ hostname = socket.gethostname()
 
 DEBUG = 1
 
-default_audio_in = True
+default_audio_in = False
 default_audio_out = True
 
 # commands
@@ -101,6 +105,7 @@ AUDIO_OUTPUT = "/tts"
 EXIT = "/quit"
 ADD = "/add"
 HELP = "/help"
+SHOW = "/show"
 
 WORKSPACE = curr_dir + "workspace/"
 if not os.path.isdir(WORKSPACE):
@@ -112,6 +117,7 @@ COMMANDS = {
     EXIT: "Quit the chat session.",
     HELP: "Display this help message",
     ADD: "(Deprecated) Add chat to examples.",
+    SHOW: "Share .png image (relative path).",
 }
 
 
@@ -150,7 +156,7 @@ class ChatBot:
             log: bool=False,
             name: str="Omega",
             tts_server: str = "eleven",
-            mic_index: int = 0, # 2==pi, 0==ubuntu
+            mic_index: int = 2, # 2==pi, 0==ubuntu
             stream_msg: bool = True,
             stream_audio: bool = True,
             **kwargs
@@ -187,6 +193,10 @@ class ChatBot:
         # if os.path.isdir(self.tmp_dir):
         #     shutil.rmtree(self.tmp_dir)
         # os.mkdir(tmp_dir)
+
+        # For image uploads
+        if not os.path.isdir("img/"):
+            os.mkdir("img")
 
         if self.stream_audio:
             assert self.stream_msg, f"Can only stream audio if streaming text message also, currently."
@@ -249,15 +259,15 @@ class ChatBot:
 
         with RedirectStdStreams():
             with Spinner(f"Listening "):
-                # Wait for keypress
+                # Wait for keypress; this python script must be executed as sudo for keyboard to work!
                 # keyboard.wait('ctrl+q')
-                with sr.Microphone(device_index=1) as source:
+                with sr.Microphone(device_index=self.mic_index) as source:
 
                     self.R.adjust_for_ambient_noise(source)
 
-                    audio = self.R.listen_from_keyword_on(source, timeout=self.timeout)
+                    # audio = self.R.listen_from_keyword_on(source, timeout=self.timeout)
                     # audio = self.R.recognize_whisper(source, timeout=self.timeout)
-                    # audio = self.R.listen(source, timeout=self.timeout)
+                    audio = self.R.listen(source, timeout=self.timeout)
                     # audio = self.R.record(source, duration=5)
                     # audio = self.R.listen(source, phrase_time_limit=self.timeout)
 
@@ -285,29 +295,31 @@ class ChatBot:
 
     def run(self) -> None:
         print(f"\n\t\t\t=========> CHAT with {self.name} <=========")
+        image_path = None
         user_input = ""
         got_return = False
         while True:
             try:
                 if not got_return:
                     if not self.AUDIO_INPUT:
-                        user_input = input(">> "+colors.cyan("USER")+ "(✏️  ): ")
+                        user_input = input(">> "+colors.cyan("USER")+ "[✏️ ]: ")
                         if user_input.startswith("!"):
                             # execute command
-                            proc = Popen([user_input[1:]], shell=True)
-                            proc.wait()
+                            Popen([user_input[1:]], shell=True).wait()
                             continue
                     else:
-                        print(">> "+colors.cyan("USER")+"(🎤 ): ", end="")
+                        print(">> "+colors.cyan("USER")+"[🎤]: ", end="")
                         if self.stream_audio:
+                            # start listening after previously queued speaking is done
                             self.speak_listen_queue.put(0)
                         else:
+                            # start listening immediately
                             user_input = self.listen_loop()
                             print(user_input)
                 else:
                     print(user_input)
 
-                if self.stream_audio:
+                if self.stream_audio and self.AUDIO_INPUT:
                     self.transcribed_msg = None
                     while True:
                         # wait for self.transcribed_msg to be set by _speak_listen_worker
@@ -344,119 +356,153 @@ class ChatBot:
                         self.logfile.close()
                         shutil.copy(self.logf, f"examples/{self.name}_{self.lang}.jsonl")
                         break
+                    elif command == SHOW:
+                        image_path = user_input.split(" ")[1]
+
+                        if user_input.find(image_path)+len(image_path)+ 2 < len(user_input):
+                            # additional text was provided, i.e. "/show img/mypic.png What do you make of this?"
+                            user_input = user_input[user_input.find(image_path)+len(image_path)+1:]
+                        else:
+                            user_input = "Empty user input with Image."
+
+                        # get image data
+                        full_img_path = "img/"+image_path
+                        print(f"\n\t>> "+colors.blue("AUTO")+f": Uploading {full_img_path} if it exists.")
+                        assert os.path.isfile(full_img_path), f"{full_img_path} not found"
+                        with open(full_img_path, "rb") as img_file:
+                            img_data = base64.b64encode(img_file.read()).decode("utf-8")
+
+                        inp = {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "image",
+                                    "source": {
+                                        "type": "base64",
+                                        "media_type": "image/png",
+                                        "data": img_data
+                                    }
+                                },
+                                {
+                                    "type": "text",
+                                    "text": user_input
+                                }
+                            ]
+                        }
                 else:
                     inp = {"role": "user", "content": user_input}
 
-                    self.messages += [inp]
+                self.messages += [inp]
 
-                    if self.log_history:
-                        self.logfile.write(str(inp)+"\n")
+                if self.log_history:
+                    self.logfile.write(str(inp)+"\n")
 
-                    # Make OPENAI API CALL
-                    try:
-                        if not self.stream_msg:
-                            with Spinner(f"Thinking "):
-                                response = anthropic_client.messages.create(
-                                    model="claude-3-opus-20240229",
-                                    system=self.sys_msg,
-                                    max_tokens=1024,
-                                    messages=self.messages
-                                ).content[0].text
-                        else:
-                            # streaming message
-                            response = ""
-                            prev_delim = 0
-                            print()
-                            print(">> " + colors.red(self.name)+ ":"+"\n")
-                            with anthropic_client.messages.stream(
-                                    model="claude-3-opus-20240229",
-                                    system=self.sys_msg,
-                                    max_tokens=1024,
-                                    messages=self.messages
-                                ) as stream:
-                                for text in stream.text_stream:
-                                    if self.stream_audio:
-                                        # speak individual sentences
-                                        delims = re.compile(r"(!|\.|\?| \- |\: )")
-                                        if delims.search(text):
-                                            # delimiter found: speak in background
-                                            self.speak_listen_queue.put(response[prev_delim:])
-                                            prev_delim = len(response)
-                                    response += text
-                                    print(colors.magenta(text), end="", flush=True)
-
+                # Make ANTHROPIC API CALL
+                try:
+                    if not self.stream_msg:
+                        with Spinner(f"Thinking "):
+                            response = anthropic_client.messages.create(
+                                model="claude-3-opus-20240229",
+                                system=self.sys_msg,
+                                max_tokens=1024,
+                                messages=self.messages
+                            ).content[0].text
+                    else:
+                        # streaming message
+                        response = ""
+                        prev_delim = 0
+                        print()
+                        print(">> " + colors.red(self.name)+ ":"+"\n")
+                        with anthropic_client.messages.stream(
+                                model="claude-3-opus-20240229",
+                                system=self.sys_msg,
+                                max_tokens=1024,
+                                messages=self.messages
+                            ) as stream:
+                            for text in stream.text_stream:
                                 if self.stream_audio:
-                                    # speak last sentence
-                                    self.speak_listen_queue.put(response[prev_delim:])
-                            print()
+                                    # speak individual sentences
+                                    delims = re.compile(r"(!|\.|\?| \- |\: |\n)")
+                                    if delims.search(text):
+                                        # delimiter found: speak in background
+                                        self.speak_listen_queue.put(response[prev_delim:])
+                                        prev_delim = len(response)
 
-                        response_parts = self.post_process(response)
+                                response += text
+                                print(colors.magenta(text), end="", flush=True)
 
-                        if not self.stream_msg:
-                            print()
-                            print(">> " + colors.red(self.name)+ ":"+"\n")
+                            if self.stream_audio:
+                                # speak last sentence
+                                self.speak_listen_queue.put(response[prev_delim:])
+                        print()
 
-                        self.messages += [{"role": "assistant", "content": ""}] # initialize assistant response
-                    except KeyboardInterrupt:
-                        print("\n<Thought interrupted by user>")
-                        self.messages += [{"role": "assistant", "content": "<Interrupted by user.>"}]
-                        continue
+                    response_parts = self.post_process(response)
 
-                    got_return = False
-                    command_count = 0
-                    for i, (part, is_command, echo) in enumerate(response_parts):
+                    if not self.stream_msg:
+                        print()
+                        print(">> " + colors.red(self.name)+ ":"+"\n")
 
-                        # iteratively add response to history
-                        self.messages[-1]["content"] = self.messages[-1]["content"] + "\n" + part
+                    self.messages += [{"role": "assistant", "content": ""}] # initialize assistant response
+                except KeyboardInterrupt:
+                    print("\n<Thought interrupted by user>")
+                    self.messages += [{"role": "assistant", "content": "<Interrupted by user.>"}]
+                    continue
 
-                        if is_command:
-                            command_count += 1
+                got_return = False
+                command_count = 0
+                for i, (part, is_command, echo) in enumerate(response_parts):
 
-                            if part.startswith("bash"):
-                                part = part[4:]
-                            print(colors.red(f" {self.name}@ideas~$ {part}"))
+                    # iteratively add response to history
+                    self.messages[-1]["content"] = self.messages[-1]["content"] + "\n" + part
 
-                            proc = Popen([CD + " && " + part], stderr=PIPE, shell=True)
-                            proc.wait()
-                            err = proc.stderr.read().decode()
+                    if is_command:
+                        command_count += 1
 
-                            if proc.stdout is not None:
-                                out = proc.stdout.read().decode()
-                                print(out)
-                            else:
-                                out = None
+                        if part.startswith("bash"):
+                            part = part[4:]
+                        print(colors.red(f" {self.name}@{HOSTNAME}~$ {part[1:]}"))
 
-                            print(err)
+                        proc = Popen([CD + " && " + part], stderr=PIPE, shell=True)
+                        proc.wait()
+                        err = proc.stderr.read().decode()
 
-                            if echo:
-                                user_input = f">> "+colors.blue("AUTO")+f": Your command returned:\n{out}"
-                                break
-
-                            if err:
-                                got_return = True
-                                user_input = f">> "+colors.blue("AUTO")+f": Thanks, but the {ordinal(command_count)} command in your reply returned the following error:\n{err}"
-                            elif out:
-                                got_return = True
-                                user_input = f">> "+colors.blue("AUTO")+f": Your command returned: {out}."
-                            else:
-                                got_return = False
-
+                        if proc.stdout is not None:
+                            out = proc.stdout.read().decode()
+                            print(out)
                         else:
-                            # message
-                            if not self.stream_msg:
-                                print(colors.magenta(f"{part}"))
+                            out = None
 
-                            if self.AUDIO_OUTPUT and part and not self.stream_audio:
-                                self.speak(part)
+                        print(err)
 
-                        # stop executing the rest of the commands/messages
-                        if got_return:
+                        if echo:
+                            user_input = f">> "+colors.blue("AUTO")+f": Your command returned:\n{out}"
                             break
 
-                    if self.log_history:
-                        self.logfile.write(str(self.messages[-1])+"\n")
+                        if err:
+                            got_return = True
+                            user_input = f">> "+colors.blue("AUTO")+f": Thanks, but the {ordinal(command_count)} command in your reply returned the following error:\n{err}"
+                        elif out:
+                            got_return = True
+                            user_input = f">> "+colors.blue("AUTO")+f": Your command returned: {out}."
+                        else:
+                            got_return = False
 
-                # if self.stream_audio: self.speak_listen_queue.join()
+                    else:
+                        # message
+                        if not self.stream_msg:
+                            print(colors.magenta(f"{part}"))
+
+                        if self.AUDIO_OUTPUT and part and not self.stream_audio:
+                            self.speak(part)
+
+                    # stop executing the rest of the commands/messages
+                    if got_return:
+                        break
+
+                if self.log_history:
+                    self.logfile.write(str(self.messages[-1])+"\n")
+
+            # if self.stream_audio: self.speak_listen_queue.join()
 
             except KeyboardInterrupt as KI:
                 print("Interrupting ...")
@@ -504,6 +550,12 @@ class ChatBot:
             )
             response.stream_to_file(tmp_response)
 
+            # higher speed
+            # sound = AudioSegment.from_mp3(tmp_response)
+            # fast_sound = sound.speedup(playback_speed=1.5)
+            # fast_sound.export(tmp_response, format="mp3")
+
+            # playback
             playsound.playsound(tmp_response)
             # Popen(["mpg123", "-q", tmp_response])
 
@@ -520,7 +572,7 @@ def main():
 
     lang = "en"  # "en", "de"
     name = "Opus"
-    thresh = 50
+    thresh = 150
     tts = "openai" # google, eleven, openai
 
     if not os.path.exists(f"examples/{name}_{lang}.jsonl"):
